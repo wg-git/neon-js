@@ -19,6 +19,8 @@ export const getAPIEndpoint = net => {
       return 'http://api.wallet.cityofzion.io'
     case 'TestNet':
       return 'http://testnet-api.wallet.cityofzion.io'
+    case 'PrivateNet':
+      return 'http://127.0.0.1:5000'
     default:
       return net
   }

@@ -17,6 +17,8 @@ class RPCClient {
       this.net = DEFAULT_RPC.MAIN
     } else if (net === NEO_NETWORK.TEST) {
       this.net = DEFAULT_RPC.TEST
+    } else if (net === NEO_NETWORK.PRIV) {
+      this.net = DEFAULT_RPC.PRIV
     } else {
       /**
         * The URL of the node that this client queries.
