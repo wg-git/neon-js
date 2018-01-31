@@ -21,6 +21,7 @@ declare module '@cityofzion/neon-js' {
     export namespace DEFAULT_RPC {
       export const MAIN: string
       export const TEST: string
+      export const PRIV: string
     }
 
     export const DEFAULT_REQ: object
@@ -28,6 +29,7 @@ declare module '@cityofzion/neon-js' {
     export namespace NEO_NETWORK {
       export const MAIN: string
       export const TEST: string
+      export const PRIV: string
     }
 
     export const RPC_VERSION: string

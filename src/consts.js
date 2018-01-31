@@ -24,7 +24,8 @@ export const TEST_NXT_ADDRESS = 'AHcLAfnvzzHyuPPULeXrXZ6RK3Hkdvi1qi'
 
 export const DEFAULT_RPC = {
   MAIN: 'https://seed1.neo.org:10331',
-  TEST: 'https://seed1.neo.org:20331'
+  TEST: 'https://seed1.neo.org:20331',
+  PRIV: 'https://127.0.0.1:5000'
 }
 
 export const DEFAULT_REQ = { jsonrpc: '2.0', method: 'getblockcount', params: [], id: 1234 }
@@ -57,7 +58,8 @@ export const DEFAULT_ACCOUNT_CONTRACT = {
 
 export const NEO_NETWORK = {
   MAIN: 'MainNet',
-  TEST: 'TestNet'
+  TEST: 'TestNet',
+  PRIV: 'PrivateNet'
 }
 
 // specified by nep2, same as bip38
