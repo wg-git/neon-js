@@ -2,8 +2,12 @@ import Query from './query'
 import { isAddress } from '../wallet'
 import semver from 'semver'
 import { RPC_VERSION, DEFAULT_RPC, NEO_NETWORK } from '../consts'
+import logger from '../logging'
+import { timeout } from '../settings'
 
-const versionRegex = /NEO: (\d+\.\d+\.\d+)/
+const log = logger('rpc')
+
+const versionRegex = /NEO:(\d+\.\d+\.\d+)/
 /**
  * @class RPCClient
  * @classdesc
@@ -30,6 +34,8 @@ class RPCClient {
      */
 
     this.history = []
+    this.lastSeenHeight = 0
+    this._latencies = []
 
     /**
      * Version of this client. Used to check if RPC call is implemented.
@@ -43,24 +49,61 @@ class RPCClient {
     }
   }
 
+  get [Symbol.toStringTag] () {
+    return 'RPC Client'
+  }
+
+  get latency () {
+    if (this._latencies.length === 0) return 99999
+    return Math.floor(this._latencies.reduce((p, c) => p + c, 0) / this._latencies.length)
+  }
+
+  set latency (lat) {
+    if (this._latencies.length > 4) this._latencies.shift()
+    this._latencies.push(lat)
+  }
+
+  /**
+   * Measures the latency using getBlockCount call. Returns the current latency. For average, call this.latency
+   * @returns {number}
+   */
+  ping () {
+    const timeStart = Date.now()
+    var query = Query.getBlockCount()
+    return this.execute(query, { timeout: timeout.ping })
+      .then(res => {
+        this.lastSeenHeight = res.result
+        const newPing = Date.now() - timeStart
+        this.latency = newPing
+        return newPing
+      })
+      .catch(_ => {
+        this.latency = timeout.ping
+        return timeout.ping
+      })
+  }
+
   /**
    * Takes an Query object and executes it. Adds the Query object to history.
    * @param {Query} query
+   * @param {AxiosRequestConfig} config
    * @return {Promise<any>}
    */
-  execute (query) {
+  execute (query, config) {
     this.history.push(query)
-    return query.execute(this.net)
+    log.info(`RPC: ${this.net} executing Query[${query.req.method}]`)
+    return query.execute(this.net, config)
   }
 
   /**
    * Creates a query with the given req and immediately executes it.
    * @param {object} req
+   * @param {AxiosRequestConfig} config
    * @return {Promise<any>}
    */
-  query (req) {
+  query (req, config) {
     const query = new Query(req)
-    return this.execute(query)
+    return this.execute(query, config)
   }
 
   /**
@@ -77,6 +120,7 @@ class RPCClient {
   }
 
   /**
+   * Gets the state of an asset given an id.
    * @param {string} assetId
    * @return {Promise<object>}
    */
@@ -94,6 +138,18 @@ class RPCClient {
    */
   getBlock (indexOrHash, verbose = 1) {
     return this.execute(Query.getBlock(indexOrHash, verbose))
+      .then((res) => {
+        return res.result
+      })
+  }
+
+  /**
+   * Gets the block hash at a given height.
+   * @param {number} index
+   * @return {Promise<string>}
+   */
+  getBlockHash (index) {
+    return this.execute(Query.getBlockHash(index))
       .then((res) => {
         return res.result
       })
@@ -205,6 +261,7 @@ class RPCClient {
   }
 
   /**
+   * Gets the transaction output given a transaction id and index
    * @param {string} txid
    * @param {number} index
    * @return {Promise<object>}
@@ -236,6 +293,7 @@ class RPCClient {
         }
       })
   }
+
   /**
    * Calls a smart contract with the given parameters. This method is a local invoke, results are not reflected on the blockchain.
    * @param {string} scriptHash

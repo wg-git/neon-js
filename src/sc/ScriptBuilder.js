@@ -1,4 +1,4 @@
-import { StringStream, num2hexstring, reverseHex, int2hex, str2ab, ab2hexstring, str2hexstring } from '../utils.js'
+import { StringStream, num2hexstring, reverseHex, ensureHex, int2hex, str2ab, ab2hexstring, str2hexstring } from '../utils.js'
 import OpCode from './opCode.js'
 
 /**
@@ -14,7 +14,8 @@ class ScriptBuilder extends StringStream {
    * @return {ScriptBuilder} this
    */
   _emitAppCall (scriptHash, useTailCall = false) {
-    if (scriptHash.length !== 40) throw new Error()
+    ensureHex(scriptHash)
+    if (scriptHash.length !== 40) throw new Error('ScriptHash should be 20 bytes long!')
     return this.emit(useTailCall ? OpCode.TAILCALL : OpCode.APPCALL, reverseHex(scriptHash))
   }
 
@@ -38,6 +39,7 @@ class ScriptBuilder extends StringStream {
    * @return {ScriptBuilder} this
    */
   _emitString (hexstring) {
+    ensureHex(hexstring)
     const size = hexstring.length / 2
     if (size <= OpCode.PUSHBYTES75) {
       this.str += num2hexstring(size)
@@ -48,12 +50,14 @@ class ScriptBuilder extends StringStream {
       this.str += hexstring
     } else if (size < 0x10000) {
       this.emit(OpCode.PUSHDATA2)
-      this.str += num2hexstring(size, 2)
+      this.str += num2hexstring(size, 2, true)
+      this.str += hexstring
+    } else if (size < 0x100000000) {
+      this.emit(OpCode.PUSHDATA4)
+      this.str += num2hexstring(size, 4, true)
       this.str += hexstring
     } else {
-      this.emit(OpCode.PUSHDATA4)
-      this.str += num2hexstring(size, 4)
-      this.str += hexstring
+      throw new Error(`String too big to emit!`)
     }
     return this
   }
@@ -80,7 +84,7 @@ class ScriptBuilder extends StringStream {
    */
   _emitParam (param) {
     if (!param.type) throw new Error('No type available!')
-    if (!param.value) throw new Error('No value available!')
+    if (!isValidValue(param.value)) throw new Error('Invalid value provided!')
     switch (param.type) {
       case 'String':
         return this._emitString(str2hexstring(param.value))
@@ -92,6 +96,8 @@ class ScriptBuilder extends StringStream {
         return this._emitString(param.value)
       case 'Array':
         return this._emitArray(param.value)
+      case 'Hash160':
+        return this._emitString(reverseHex(param.value))
     }
   }
 
@@ -168,6 +174,81 @@ class ScriptBuilder extends StringStream {
         throw new Error()
     }
   }
+
+  /**
+   * Reverse engineer a script back to its params.
+   * @return {scriptParams[]}
+   */
+  toScriptParams () {
+    this.reset()
+    const scripts = []
+    while (!this.isEmpty()) {
+      let a = retrieveAppCall(this)
+      if (a) scripts.push(a)
+    }
+    return scripts
+  }
+}
+
+const isValidValue = (value) => {
+  if (value) {
+    return true
+  } else if (value === 0) {
+    return true
+  } else if (value === '') {
+    return true
+  }
+  return false
+}
+
+/**
+ * Retrieves a single AppCall from a ScriptBuilder object.
+ * @param {ScriptBuilder} sb
+ * @return {scriptParams}
+ */
+const retrieveAppCall = (sb) => {
+  const output = {
+    scriptHash: '',
+    args: []
+  }
+
+  while (!sb.isEmpty()) {
+    let b = sb.read()
+    let n = parseInt(b, 16)
+    switch (true) {
+      case (n === 0):
+        output.args.unshift(0)
+        break
+      case (n < 75):
+        output.args.unshift(sb.read(n))
+        break
+      case (n >= 81 && n <= 96):
+        output.args.unshift(n - 80)
+        break
+      case (n === 193):
+        const len = output.args.shift()
+        const cache = []
+        for (var i = 0; i < len; i++) { cache.unshift(output.args.shift()) }
+        output.args.unshift(cache)
+        break
+      case (n === 102):
+        sb.pter = sb.str.length
+        break
+      case (n === 103):
+        output.scriptHash = reverseHex(sb.read(20))
+        output.useTailCall = false
+        return output
+      case (n === 105):
+        output.scriptHash = reverseHex(sb.read(20))
+        output.useTailCall = true
+        return output
+      case (n === 241):
+        break
+      default:
+        throw new Error(`Encounter unknown byte: ${b}`)
+    }
+  }
+  if (output.scriptHash !== '') return output
 }
 
 export default ScriptBuilder

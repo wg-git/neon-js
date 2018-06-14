@@ -1,7 +1,8 @@
 import * as core from '../../../src/api/core'
 import * as APIswitch from '../../../src/api/switch'
-import { CONTRACTS, NEO_NETWORK, TEST_NXT_ADDRESS } from '../../../src/consts'
+import { CONTRACTS, NEO_NETWORK } from '../../../src/consts'
 import { ContractParam } from '../../../src/sc'
+import { Account } from '../../../src/wallet'
 import testKeys from '../../unit/testKeys.json'
 
 describe('Integration: API Core', function () {
@@ -28,14 +29,13 @@ describe('Integration: API Core', function () {
     if (mock) mock.restore()
   })
   describe('sendAsset', function () {
-    it('NeonDB', () => {
+    it.skip('NeonDB', () => {
       useNeonDB()
 
       const intent1 = core.makeIntent({ NEO: 1 }, testKeys.a.address)
       const config1 = {
         net: NEO_NETWORK.TEST,
-        address: testKeys.b.address,
-        privateKey: testKeys.b.privateKey,
+        account: new Account(testKeys.b.privateKey),
         intents: intent1
       }
 
@@ -54,7 +54,8 @@ describe('Integration: API Core', function () {
         net: NEO_NETWORK.TEST,
         address: testKeys.a.address,
         privateKey: testKeys.a.privateKey,
-        intents: intent2
+        intents: intent2,
+        fees: 0.00000001
       }
       return core.sendAsset(config2)
         .then((c) => {
@@ -65,7 +66,7 @@ describe('Integration: API Core', function () {
   })
 
   describe('claimGas', function () {
-    it('neonDB', () => {
+    it.skip('neonDB', () => {
       useNeonDB()
 
       const config = {
@@ -97,14 +98,13 @@ describe('Integration: API Core', function () {
   })
 
   describe('doInvoke', function () {
-    it('neonDB', () => {
+    it.skip('neonDB', () => {
       useNeonDB()
 
       const config = {
         net: NEO_NETWORK.TEST,
         address: testKeys.a.address,
         privateKey: testKeys.a.privateKey,
-        intents: core.makeIntent({ GAS: 0.1 }, testKeys.a.address),
         script: '00c1046e616d65675f0e5a86edd8e1f62b68d2b3f7c0a761fc5a67dc',
         gas: 0
       }
@@ -130,7 +130,6 @@ describe('Integration: API Core', function () {
         net: NEO_NETWORK.TEST,
         address: testKeys.b.address,
         privateKey: testKeys.b.privateKey,
-        intents: core.makeIntent({ GAS: 0.1 }, testKeys.b.address),
         script,
         gas: 0
       }
@@ -153,7 +152,7 @@ describe('Integration: API Core', function () {
         net: NEO_NETWORK.TEST,
         address: testKeys.a.address,
         privateKey: testKeys.a.privateKey,
-        intents: core.makeIntent({ NEO: 1 }, TEST_NXT_ADDRESS),
+        intents: core.makeIntent({ NEO: 1 }, 'AHcLAfnvzzHyuPPULeXrXZ6RK3Hkdvi1qi'),
         script,
         gas: 0
       }

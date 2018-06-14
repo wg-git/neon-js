@@ -1,8 +1,11 @@
 import * as core from './core'
-import { isPrivateKey, isPublicKey, isWIF, isAddress, isNEP2 } from './verify'
+import { isPrivateKey, isPublicKey, isWIF, isAddress, isNEP2, isScriptHash } from './verify'
 import { encrypt, decrypt } from './nep2'
 import { DEFAULT_ACCOUNT_CONTRACT } from '../consts'
 import util from 'util'
+import logger from '../logging'
+
+const log = logger('wallet')
 
 /**
  * @class Account
@@ -14,7 +17,7 @@ import util from 'util'
  * @param {string|object} str - WIF/ Private Key / Public Key / Address or a Wallet Account object.
  */
 class Account {
-  constructor (str) {
+  constructor (str = null) {
     this.extra = null
     this.isDefault = false
     this.lock = false
@@ -35,6 +38,8 @@ class Account {
       this._publicKey = core.getPublicKeyEncoded(str)
     } else if (isPublicKey(str, true)) {
       this._publicKey = str
+    } else if (isScriptHash(str)) {
+      this._scriptHash = str
     } else if (isAddress(str)) {
       this._address = str
     } else if (isWIF(str)) {
@@ -53,6 +58,13 @@ class Account {
     this._updateContractScript()
   }
 
+  get [Symbol.toStringTag] () {
+    return 'Account'
+  }
+
+  [util.inspect.custom] (depth, opts) {
+    return `[Account: ${this.label}]`
+  }
   /**
    * Attempts to update the contract.script field if public key is available.
    */
@@ -61,6 +73,7 @@ class Account {
       if (this.contract.script === '') {
         const publicKey = this.publicKey
         this.contract.script = core.getVerificationScriptFromPublicKey(publicKey)
+        log.debug(`Updated ContractScript for Account: ${this.label}`)
       }
     } catch (e) { }
   }
@@ -187,8 +200,8 @@ class Account {
   }
 
   /**
-   * Export Account as a WalletAccount object.
-   * @return {WalletAccount}
+   * Export Account as a AccountLike object.
+   * @return {AccountLike}
    */
   export () {
     let key = null
@@ -203,10 +216,6 @@ class Account {
       contract: this.contract,
       extra: this.extra
     }
-  }
-
-  [util.inspect.custom] (depth, opts) {
-    return `[Account: ${this.label}]`
   }
 }
 

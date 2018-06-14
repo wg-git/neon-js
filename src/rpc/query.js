@@ -1,6 +1,10 @@
 import axios from 'axios'
 import { serializeTransaction } from '../transactions'
 import { DEFAULT_REQ } from '../consts'
+import logger from '../logging'
+import { timeout } from '../settings'
+
+const log = logger('rpc')
 
 /**
  * @typedef RPCRequest
@@ -35,6 +39,10 @@ class Query {
     this.parse = null
   }
 
+  get [Symbol.toStringTag] () {
+    return 'Query'
+  }
+
   /**
    * Attaches a parser method to the Query. This method will be used to parse the response.
    * @param {function} parser
@@ -48,11 +56,12 @@ class Query {
   /**
    * Executes the Query by sending the RPC request to the provided net.
    * @param {string} url - The URL of the node.
+   * @param {AxiosRequestConfig} config - Request configuration
    * @return {Response|any}
    */
-  execute (url) {
+  execute (url, config = {}) {
     if (this.completed) throw new Error('This request has been sent')
-    return queryRPC(url, this.req)
+    return queryRPC(url, this.req, config)
       .then((res) => {
         this.res = res
         this.completed = true
@@ -60,6 +69,7 @@ class Query {
           throw new Error(res.error.message)
         }
         if (this.parse) {
+          log.info(`Query[${this.req.method}] successful`)
           return this.parse(res)
         }
         return res
@@ -97,6 +107,17 @@ class Query {
     return new Query({
       method: 'getblock',
       params: [indexOrHash, verbose]
+    })
+  }
+
+  /**
+   * @param {number} index
+   * @return {Query}
+   */
+  static getBlockHash (index) {
+    return new Query({
+      method: 'getblockhash',
+      params: [index]
     })
   }
 
@@ -290,12 +311,18 @@ export default Query
  * @param {string} req.method - RPC Method name.
  * @param {Array} req.params - Array of parameters to send.
  * @param {number} req.id - Unique id to identity yourself. RPC should reply with same id.
+ * @param {AxiosRequestConfig} config - Configuration to pass down to axios
  * @returns {Promise<Response>} RPC Response
  */
-export const queryRPC = (url, req) => {
-  const jsonRequest = axios.create({ headers: { 'Content-Type': 'application/json' } })
+export const queryRPC = (url, req, config = {}) => {
+  const jsonRequest = axios.create({
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    timeout: timeout.rpc
+  })
   const jsonRpcData = Object.assign({}, DEFAULT_REQ, req)
-  return jsonRequest.post(url, jsonRpcData).then((response) => {
+  return jsonRequest.post(url, jsonRpcData, config).then((response) => {
     return response.data
   })
 }

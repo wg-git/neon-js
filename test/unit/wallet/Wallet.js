@@ -2,6 +2,7 @@ import Wallet from '../../../src/wallet/Wallet'
 import Account from '../../../src/wallet/Account'
 import simpleWallet from './simpleWallet.json'
 import testWallet from './testWallet.json'
+import { DEFAULT_SCRYPT } from '../../../src/consts'
 
 describe('Wallet file', function () {
   describe('Constructor', function () {
@@ -9,6 +10,15 @@ describe('Wallet file', function () {
       const w = new Wallet()
       w.should.not.equal(undefined)
       w.name.should.equal('myWallet')
+    })
+
+    it('only name', () => {
+      const w = new Wallet({ name: 'NamedWallet' })
+      w.should.not.equal(undefined)
+      w.name.should.equal('NamedWallet')
+      const scryptParams = [w.scrypt.n, w.scrypt.r, w.scrypt.p]
+      scryptParams.should.eql([DEFAULT_SCRYPT.cost, DEFAULT_SCRYPT.blockSize, DEFAULT_SCRYPT.parallel])
+      w.accounts.should.eql([])
     })
 
     it('custom config', () => {
@@ -58,9 +68,9 @@ describe('Wallet file', function () {
 
   it('export', () => {
     const w = new Wallet(testWallet)
-    const exportString = w.export()
-    exportString.should.equal(JSON.stringify(testWallet))
-    const imported = Wallet.import(exportString)
+    const exportObj = w.export()
+    exportObj.should.eql(testWallet)
+    const imported = Wallet.import(JSON.stringify(exportObj))
     w.should.eql(imported)
   })
 

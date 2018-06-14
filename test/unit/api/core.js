@@ -1,7 +1,7 @@
 import * as core from '../../../src/api/core'
 import { neonDB, neoscan } from '../../../src/api'
 import { Transaction, signTransaction, getTransactionHash } from '../../../src/transactions'
-import { Balance } from '../../../src/wallet'
+import { Account, Balance, Claims } from '../../../src/wallet'
 import { DEFAULT_RPC } from '../../../src/consts'
 import { Fixed8 } from '../../../src/utils'
 import testKeys from '../testKeys.json'
@@ -157,6 +157,45 @@ describe('Core API', function () {
         })
     })
 
+    it('cannot sign for assets on address mismatch', () => {
+      return core.signTx({
+        tx,
+        address,
+        privateKey: testKeys.b.privateKey
+      })
+        .then((conf) => {
+          conf.tx.scripts.length.should.equal(1)
+          conf.tx.scripts[0].should.eql(signature)
+        })
+        .should.be.rejectedWith(Error)
+    })
+
+    it('sign for smart contract assets', () => {
+      const testSmartContractAddress = 'AXhgHZtAYC8ZztJo8B1LV2kLyeMrXr39La'
+
+      return core.signTx({
+        tx,
+        address: testSmartContractAddress,
+        privateKey: testKeys.a.privateKey,
+        sendingFromSmartContract: true
+      })
+        .then((conf) => {
+          conf.tx.scripts.length.should.equal(1)
+          conf.tx.scripts[0].should.eql(signature)
+        })
+    })
+
+    it('cannot sign for smart contract assets without option', () => {
+      const testSmartContractAddress = 'AXhgHZtAYC8ZztJo8B1LV2kLyeMrXr39La'
+
+      const config = {
+        tx,
+        address: testSmartContractAddress,
+        privateKey: testKeys.a.privateKey
+      }
+      return core.signTx(config).should.be.rejectedWith(Error)
+    })
+
     it('sign with signingFunction', () => {
       const signingFunction = (tx, publicKey) => {
         return Promise.resolve(signTransaction(tx, testKeys.a.privateKey))
@@ -180,6 +219,108 @@ describe('Core API', function () {
           conf.response.should.be.an('object')
           conf.response.result.should.equal(true)
           conf.response.txid.should.equal(getTransactionHash(config.tx))
+        })
+    })
+  })
+
+  describe('fillUrl', function () {
+    it('does nothing when url provided', () => {
+      const config = {
+        url: 'http://random.org:20332'
+      }
+
+      return core.fillUrl(config)
+        .then(conf => {
+          conf.url.should.equal('http://random.org:20332')
+        })
+    })
+
+    it('fills url', () => {
+      const config = Object.assign({}, baseConfig)
+      return core.fillUrl(config)
+        .then(conf => {
+          conf.url.should.be.a('string')
+        })
+    })
+  })
+
+  describe('fillKeys', function () {
+    it('fill address and privateKey', () => {
+      const config = {
+        account: new Account(testKeys.a.privateKey)
+      }
+
+      return core.fillKeys(config)
+        .then((conf) => {
+          conf.address.should.equal(testKeys.a.address)
+          conf.privateKey.should.equal(testKeys.a.privateKey)
+        })
+    })
+
+    it('fill address and publicKey when using signingFunction', () => {
+      const config = {
+        account: new Account(testKeys.a.publicKey),
+        signingFunction: () => true
+      }
+
+      return core.fillKeys(config)
+        .then(conf => {
+          conf.address.should.equal(testKeys.a.address)
+          conf.publicKey.should.equal(testKeys.a.publicKey)
+        })
+    })
+  })
+
+  describe('fillBalance', function () {
+    it('does not call getBalance when balance exists', () => {
+      const expectedBalance = new Balance()
+      const config = {
+        net: 'RandomNet',
+        address: testKeys.b.address,
+        balance: expectedBalance
+      }
+      return core.fillBalance(config)
+        .then(conf => {
+          conf.balance.should.equal(expectedBalance)
+        })
+    })
+
+    it('calls getBalance when balance is not available', () => {
+      const config = Object.assign({}, baseConfig)
+      return core.fillBalance(config)
+        .then(conf => {
+          conf.should.have.keys([
+            'net',
+            'address',
+            'balance'
+          ])
+        })
+    })
+  })
+
+  describe('fillClaims', function () {
+    it('does not call getClaims when claims exist', () => {
+      const expectedClaims = new Claims()
+      const config = {
+        net: 'RandomNet',
+        address: testKeys.b.address,
+        claims: expectedClaims
+      }
+      return core.fillClaims(config)
+        .then(conf => {
+          conf.claims.should.equal(expectedClaims)
+        })
+    })
+
+    it('calls getClaims when claims is not available', () => {
+      const config = Object.assign({}, baseConfig)
+      return core.fillClaims(config)
+        .then(conf => {
+          conf.should.have.keys([
+            'net',
+            'address',
+            'claims'
+          ])
         })
     })
   })

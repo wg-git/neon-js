@@ -6,6 +6,9 @@ import TxAttrUsage from './txAttrUsage'
 import * as comp from './components'
 import * as core from './core'
 import * as exc from './exclusive'
+import logger from '../logging'
+
+const log = logger('tx')
 
 /**
  * @class Transaction
@@ -47,6 +50,10 @@ class Transaction {
     })
   }
 
+  get [Symbol.toStringTag] () {
+    return 'Transaction'
+  }
+
   /**
    * Exclusive Data
    * @type {Object}
@@ -72,6 +79,7 @@ class Transaction {
    */
   static createClaimTx (publicKeyOrAddress, claimData, override = {}) {
     if (claimData.claims.length === 0) throw new Error('Useless transaction! There is no claims!')
+    const acct = new Account(publicKeyOrAddress)
     const txConfig = Object.assign({
       type: 2,
       version: TX_VERSION.CLAIM
@@ -85,9 +93,12 @@ class Transaction {
     txConfig.outputs = [{
       assetId: ASSET_ID.GAS,
       value: totalClaim,
-      scriptHash: new Account(publicKeyOrAddress).scriptHash
+      scriptHash: acct.scriptHash
     }]
-    return new Transaction(Object.assign(txConfig, override))
+
+    const tx = new Transaction(Object.assign(txConfig, override))
+    log.info(`New ClaimTransaction for ${acct.address}`)
+    return tx
   }
 
   /**
@@ -95,16 +106,19 @@ class Transaction {
    * @param {Balance} balances - Current assets available.
    * @param {TransactionOutput[]} intents - All sending intents as TransactionOutputs
    * @param {Object} [override={}] - Optional overrides (eg.custom versions)
+   * @param {number|Fixed8} [fees]
    * @return {Transaction} Unsigned Transaction
    */
-  static createContractTx (balances, intents, override = {}) {
+  static createContractTx (balances, intents, override = {}, fees = 0) {
     if (intents === null) throw new Error('Useless transaction! You are not sending anything!')
     const txConfig = Object.assign({
       type: 128,
       version: TX_VERSION.CONTRACT,
       outputs: intents
     }, override)
-    return new Transaction(txConfig).calculate(balances)
+    const tx = new Transaction(txConfig).calculate(balances, null, fees)
+    log.info(`New ContractTransaction for ${balances.address}`)
+    return tx
   }
 
   /**
@@ -114,9 +128,10 @@ class Transaction {
    * @param {object|string} invoke - Invoke Script as an object or hexstring
    * @param {number} gasCost - Gas to attach for invoking script
    * @param {object} [override={}] - Optional overrides (eg.custom versions)
+   * @param {number|Fixed8} [fees]
    * @return {Transaction} Unsigned Transaction
    */
-  static createInvocationTx (balances, intents, invoke, gasCost = 0, override = {}) {
+  static createInvocationTx (balances, intents, invoke, gasCost = 0, override = {}, fees = 0) {
     if (intents === null) intents = []
     const txConfig = Object.assign({
       type: 209,
@@ -125,7 +140,9 @@ class Transaction {
       script: typeof (invoke) === 'string' ? invoke : createScript(invoke),
       gas: gasCost
     }, override)
-    return new Transaction(txConfig).calculate(balances)
+    const tx = new Transaction(txConfig).calculate(balances, null, fees)
+    log.info(`New InvocationTransaction for ${balances.address}`)
+    return tx
   }
 
   /**
@@ -168,6 +185,7 @@ class Transaction {
     })
     return this
   }
+
   /**
    * Add a remark.
    * @param {string} remark - A remark in ASCII.
@@ -181,13 +199,16 @@ class Transaction {
   /**
    * Calculate the inputs required based on existing outputs provided. Also takes into account the fees required through the gas property.
    * @param {Balance} balance - Balance to retrieve inputs from.
+   * @param {function} strategy
+   * @param {number|Fixed8} fees
    * @return {Transaction} this
    */
-  calculate (balance) {
-    const { inputs, change } = core.calculateInputs(balance, this.outputs, this.gas)
+  calculate (balance, strategy = null, fees = 0) {
+    const { inputs, change } = core.calculateInputs(balance, this.outputs, this.gas, strategy, fees)
     this.inputs = inputs
     this.outputs = this.outputs.concat(change)
     balance.applyTx(this)
+    log.info(`Calculated the inputs required for Transaction with Balance: ${balance.address}`)
     return this
   }
 
@@ -217,7 +238,9 @@ class Transaction {
     if (typeof signer === 'string') {
       signer = new Account(signer)
     }
-    return core.signTransaction(this, signer.privateKey)
+    core.signTransaction(this, signer.privateKey)
+    log.info(`Signed Transaction with Account: ${signer.label}`)
+    return this
   }
 }
 

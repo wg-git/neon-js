@@ -24,7 +24,10 @@ export const createScript = (...scriptIntents) => {
   return sb.str
 }
 
-export const generateDeployScript = ({ script, name, version, author, email, description, needsStorage = false, returnType = 'ff', paramaterList = undefined }) => {
+/**
+ * Generates script for deploying contract
+ */
+export const generateDeployScript = ({ script, name, version, author, email, description, needsStorage = false, returnType = 'ff', parameterList = undefined }) => {
   const sb = new ScriptBuilder()
   sb
     .emitPush(str2hexstring(description))
@@ -34,7 +37,7 @@ export const generateDeployScript = ({ script, name, version, author, email, des
     .emitPush(str2hexstring(name))
     .emitPush(needsStorage)
     .emitPush(returnType)
-    .emitPush(paramaterList)
+    .emitPush(parameterList)
     .emitPush(script)
     .emitSysCall('Neo.Contract.Create')
   return sb

@@ -1,25 +1,24 @@
 import axios from 'axios'
 import { Balance, Claims } from '../wallet'
-import { ASSETS, ASSET_ID } from '../consts'
+import { ASSET_ID } from '../consts'
 import { Fixed8 } from '../utils'
+import { networks, httpsOnly, timeout } from '../settings'
 import logger from '../logging'
+import RPCClient from '../rpc/client'
 
 const log = logger('api')
 export const name = 'neoscan'
+
+var cachedRPC = null
+
 /**
  * Returns the appropriate NeoScan endpoint.
  * @param {string} net - 'MainNet', 'TestNet' or a custom NeoScan-like url.
  * @return {string} - URL
  */
 export const getAPIEndpoint = net => {
-  switch (net) {
-    case 'MainNet':
-      return 'https://api.neoscan.io/api/main_net'
-    case 'TestNet':
-      return 'https://neoscan-testnet.io/api/test_net'
-    default:
-      return net
-  }
+  if (networks[net]) return networks[net].extra.neoscan
+  return net
 }
 
 /**
@@ -33,28 +32,42 @@ export const getRPCEndpoint = net => {
     let bestHeight = 0
     let nodes = []
     for (const node of data) {
+      if (httpsOnly && !node.url.includes('https://')) continue
       if (node.height > bestHeight) {
         bestHeight = node.height
         nodes = [node]
-      } else if (node.height === bestHeight) {
+      } else if (node.height + 1 >= bestHeight) {
         nodes.push(node)
       }
     }
-    const selectedURL = nodes[Math.floor(Math.random() * nodes.length)].url
-    log.info(`Best node from neoscan ${net}: ${selectedURL}`)
-    return selectedURL
+    if (nodes.length === 0) throw new Error('No eligible nodes found!')
+    var urls = nodes.map(n => n.url)
+    if (urls.includes(cachedRPC)) {
+      return new RPCClient(cachedRPC).ping().then(num => {
+        if (num <= timeout.ping) return cachedRPC
+        cachedRPC = null
+        return getRPCEndpoint(net)
+      })
+    }
+    var clients = urls.map(u => new RPCClient(u))
+    return Promise.race(clients.map(c => c.ping().then(_ => c.net)))
   })
+    .then(fastestUrl => {
+      cachedRPC = fastestUrl
+      return fastestUrl
+    })
 }
 
 /**
  * Gat balances for an address.
  * @param {string} net - 'MainNet', 'TestNet' or a custom NeoScan-like url.
  * @param {string} address - Address to check.
- * @return {Balance}
+ * @return {Promise<Balance>}
  */
 export const getBalance = (net, address) => {
   const apiEndpoint = getAPIEndpoint(net)
   return axios.get(apiEndpoint + '/v1/get_balance/' + address).then(res => {
+    if (res.data.address !== address && res.data.balance === null) return new Balance({ address: res.data.address })
     const bal = new Balance({ address: res.data.address, net })
     res.data.balance.map(b => {
       bal.addAsset(b.asset, {
@@ -71,11 +84,12 @@ export const getBalance = (net, address) => {
  * Get claimable amounts for an address.
  * @param {string} net - 'MainNet', 'TestNet' or a custom NeoScan-like url.
  * @param {string} address - Address to check.
- * @return {Promise<Claim>}
+ * @return {Promise<Claims>}
  */
 export const getClaims = (net, address) => {
   const apiEndpoint = getAPIEndpoint(net)
   return axios.get(apiEndpoint + '/v1/get_claimable/' + address).then(res => {
+    if (res.address !== address && res.data.claimable === null) return new Claims({ address: res.data.address })
     const claims = parseClaims(res.data.claimable)
     log.info(`Retrieved Balance for ${address} from neoscan ${net}`)
     return new Claims({ net, address: res.data.address, claims })
@@ -90,11 +104,11 @@ export const getClaims = (net, address) => {
  */
 export const getMaxClaimAmount = (net, address) => {
   const apiEndpoint = getAPIEndpoint(net)
-  return axios.get(apiEndpoint + '/v1/get_claimable/' + address).then(res => {
+  return axios.get(apiEndpoint + '/v1/get_unclaimed/' + address).then(res => {
     log.info(
       `Retrieved maximum amount of gas claimable after spending all NEO for ${address} from neoscan ${net}`
     )
-    return new Fixed8(res.data.unclaimed)
+    return new Fixed8(res.data.unclaimed || 0)
   })
 }
 
@@ -137,30 +151,30 @@ export const getWalletDBHeight = net => {
  * Get transaction history for an account
  * @param {string} net - 'MainNet' or 'TestNet'.
  * @param {string} address - Address to check.
- * @return {Promise<History>} History
+ * @return {Promise<PastTransaction[]>} A listof PastTransactionPastTransaction[]
  */
 export const getTransactionHistory = (net, address) => {
   const apiEndpoint = getAPIEndpoint(net)
   return axios
-    .get(apiEndpoint + '/v1/get_address_neon/' + address)
+    .get(apiEndpoint + '/v1/get_last_transactions_by_address/' + address)
     .then(response => {
       log.info(`Retrieved History for ${address} from neoscan ${net}`)
-      return parseTxHistory(response.data.txids)
+      return parseTxHistory(response.data, address)
     })
 }
-/* eslint-disable camelcase */
-const parseTxHistory = txids =>
-  txids.map(({ txid, block_height, balance, asset_moved }) => {
-    let gas_sent = false
-    let neo_sent = false
-    let GAS = ASSETS.GAS
-    let NEO = ASSETS.NEO
-    balance.forEach(({ asset, amount }) => {
-      if (asset === GAS) GAS = amount
-      if (asset === NEO) NEO = amount
-    })
-    if (ASSET_ID.GAS === asset_moved) gas_sent = true
-    if (ASSET_ID.NEO === asset_moved) neo_sent = true
-    return { GAS, NEO, block_index: block_height, gas_sent, neo_sent, txid }
+
+function parseTxHistory (rawTxs, address) {
+  return rawTxs.map(tx => {
+    const vin = tx.vin.filter(i => i.address_hash === address)
+    const vout = tx.vouts.filter(o => o.address_hash === address)
+    const change = {
+      NEO: vin.filter(i => i.asset === ASSET_ID.NEO).reduce((p, c) => p.add(c.value), new Fixed8(0)),
+      GAS: vout.filter(i => i.asset === ASSET_ID.GAS).reduce((p, c) => p.add(c.value), new Fixed8(0))
+    }
+    return {
+      txid: tx.txid,
+      blockHeight: new Fixed8(tx.block_height),
+      change
+    }
   })
-/* eslint-enable camelcase */
+}

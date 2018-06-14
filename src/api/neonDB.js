@@ -1,27 +1,24 @@
 import axios from 'axios'
 import { Account, Balance, Claims } from '../wallet'
 import { Transaction, TxAttrUsage } from '../transactions'
-import { Query } from '../rpc'
+import { RPCClient, Query } from '../rpc'
 import { ASSET_ID } from '../consts'
 import { Fixed8, reverseHex } from '../utils'
+import { networks, httpsOnly, timeout } from '../settings'
 import logger from '../logging'
 
 const log = logger('api')
 export const name = 'neonDB'
+
+var cachedRPC = null
 /**
  * API Switch for MainNet and TestNet
  * @param {string} net - 'MainNet', 'TestNet', or custom neon-wallet-db URL.
  * @return {string} URL of API endpoint.
  */
 export const getAPIEndpoint = net => {
-  switch (net) {
-    case 'MainNet':
-      return 'http://api.wallet.cityofzion.io'
-    case 'TestNet':
-      return 'http://testnet-api.wallet.cityofzion.io'
-    default:
-      return net
-  }
+  if (networks[net]) return networks[net].extra.neonDB
+  return net
 }
 /**
  * Get balances of NEO and GAS for an address
@@ -92,17 +89,44 @@ export const getMaxClaimAmount = (net, address) => {
  */
 export const getRPCEndpoint = net => {
   const apiEndpoint = getAPIEndpoint(net)
-  return axios.get(apiEndpoint + '/v2/network/best_node').then(response => {
-    log.info(`Best node from neonDB ${net}: ${response.data.node}`)
-    return response.data.node
-  })
+  return axios.get(apiEndpoint + '/v2/network/nodes')
+    .then((response) => {
+      const goodNodes = response.data.nodes.filter(n => n.status)
+      let bestHeight = 0
+      let nodes = []
+      for (const node of goodNodes) {
+        if (httpsOnly && !node.url.includes('https://')) continue
+        if (node.block_height > bestHeight) {
+          bestHeight = node.block_height
+          nodes = [node]
+          // Tolerance of 1 blocks to increase our choices and not spam down the best node
+        } else if (node.block_height + 1 >= bestHeight) {
+          nodes.push(node)
+        }
+      }
+      if (nodes.length === 0) throw new Error('No eligible nodes found!')
+      var urls = nodes.map(n => n.url)
+      if (urls.includes(cachedRPC)) {
+        return new RPCClient(cachedRPC).ping().then(num => {
+          if (num <= timeout.ping) return cachedRPC
+          cachedRPC = null
+          return getRPCEndpoint(net)
+        })
+      }
+      var clients = urls.map(u => new RPCClient(u))
+      return Promise.race(clients.map(c => c.ping().then(_ => c.net)))
+    })
+    .then(fastestUrl => {
+      cachedRPC = fastestUrl
+      return fastestUrl
+    })
 }
 
 /**
  * Get transaction history for an account
  * @param {string} net - 'MainNet' or 'TestNet'.
  * @param {string} address - Address to check.
- * @return {Promise<History>} History
+ * @return {Promise<PastTransaction[]>} a list of PastTransaction
  */
 export const getTransactionHistory = (net, address) => {
   const apiEndpoint = getAPIEndpoint(net)
@@ -110,7 +134,16 @@ export const getTransactionHistory = (net, address) => {
     .get(apiEndpoint + '/v2/address/history/' + address)
     .then(response => {
       log.info(`Retrieved History for ${address} from neonDB ${net}`)
-      return response.data.history
+      return response.data.history.map(rawTx => {
+        return {
+          change: {
+            NEO: new Fixed8(rawTx.NEO || 0),
+            GAS: new Fixed8(rawTx.GAS || 0)
+          },
+          blockHeight: new Fixed8(rawTx.block_index),
+          txid: rawTx.txid
+        }
+      })
     })
 }
 
@@ -224,6 +257,7 @@ export const doMintTokens = (net, scriptHash, fromWif, neo, gasCost, signingFunc
       return res
     })
 }
+
 /**
  * Send an asset to an address
  * @param {string} net - 'MainNet' or 'TestNet'.

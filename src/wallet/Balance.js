@@ -1,4 +1,4 @@
-import { AssetBalance } from './components'
+import AssetBalance from './components/AssetBalance'
 import { Transaction } from '../transactions'
 import { ASSETS } from '../consts'
 import { Fixed8 } from '../utils'
@@ -36,6 +36,10 @@ class Balance {
     this.tokenSymbols = bal.tokenSymbols ? bal.tokenSymbols : []
     /** The token balances in this Balance for each token keyed by its symbol. */
     this.tokens = bal.tokens ? bal.tokens : {}
+  }
+
+  get [Symbol.toStringTag] () {
+    return 'Balance'
   }
 
   /**
@@ -125,19 +129,33 @@ class Balance {
   }
 
   /**
-   * Export this class as a string
-   * @return {string}
+   * Informs the Balance that the next block is confirmed, thus moving all unconfirmed transaction to unspent.
+   * @return {Balance}
+   */
+  confirm () {
+    for (const sym of this.assetSymbols) {
+      let assetBalance = this.assets[sym]
+      assetBalance.unspent = assetBalance.unspent.concat(assetBalance.unconfirmed)
+      assetBalance.unconfirmed = []
+    }
+    return this
+  }
+
+  /**
+   * Export this class as a plain JS object
+   * @return {object}
    */
   export () {
-    return JSON.stringify({
+    return {
       net: this.net,
       address: this.address,
       assetSymbols: this.assetSymbols,
-      assets: this.assets,
+      assets: exportAssets(this.assets),
       tokenSymbols: this.tokenSymbols,
       tokens: this.tokens
-    })
+    }
   }
+
   /**
    * Verifies the coins in balance are unspent. This is an expensive call.
    * @param {string} url - NEO Node to check against.
@@ -210,3 +228,26 @@ const verifyCoins = (url, coinArr) => {
 }
 
 export default Balance
+
+const exportAssets = (assets) => {
+  const exported = {}
+  Object.keys(assets).map(key => {
+    const assetBalance = assets[key]
+    const exportedAssetBalance = {
+      balance: assetBalance.balance.toNumber(),
+      spent: assetBalance.spent.map(c => exportCoin(c)),
+      unspent: assetBalance.unspent.map(c => exportCoin(c)),
+      unconfirmed: assetBalance.unconfirmed.map(c => exportCoin(c))
+    }
+    exported[key] = exportedAssetBalance
+  })
+  return exported
+}
+
+const exportCoin = (coin) => {
+  return {
+    index: coin.index,
+    txid: coin.txid,
+    value: coin.value.toNumber()
+  }
+}

@@ -1,5 +1,5 @@
-import { num2fixed8, reverseHex } from '../utils'
-import { getScriptHashFromAddress } from '../wallet'
+import { reverseHex, Fixed8 } from '../utils'
+import { getScriptHashFromAddress, isAddress } from '../wallet'
 
 /**
  * @class ContractParam
@@ -13,6 +13,10 @@ class ContractParam {
     this.type = type
     /** @type {any} */
     this.value = value
+  }
+
+  get [Symbol.toStringTag] () {
+    return { type: this.type, value: this.value }
   }
 
   /**
@@ -34,6 +38,18 @@ class ContractParam {
   }
 
   /**
+   * Creates a Hash160 ContractParam. This is used for containing a scriptHash. Do not reverse the input if using this format.
+   * @param {string} value - A 40 character long hexstring. Automatically converts an address to scripthash if provided.
+   * @return {ContractParam}
+   */
+  static hash160 (value) {
+    if (typeof value !== 'string') throw new Error(`Input should be string!`)
+    if (isAddress(value)) value = getScriptHashFromAddress(value)
+    if (value.length !== 40) throw new Error(`Input should be 40 characters long!`)
+    return new ContractParam('Hash160', value)
+  }
+
+  /**
    * Creates an Integer ContractParam. Does basic parsing and rounding to convert value into an Integer.
    * @param {any} value - A value that can be parsed to an Integer using parseInt.
    * @return {ContractParam}
@@ -46,14 +62,26 @@ class ContractParam {
    * Creates a ByteArray ContractParam.
    * @param {any} value
    * @param {string} format - The format that this value represents. Different formats are parsed differently.
+   * @param {any} args - Additional arguments such as decimal precision
    * @return {ContractParam}
    */
-  static byteArray (value, format) {
+  static byteArray (value, format, ...args) {
     if (format) format = format.toLowerCase()
     if (format === 'address') {
       return new ContractParam('ByteArray', reverseHex(getScriptHashFromAddress(value)))
     } else if (format === 'fixed8') {
-      return new ContractParam('ByteArray', num2fixed8(value))
+      var decimals = 8
+      if (args.length === 1) {
+        decimals = args[0]
+      }
+      if (!isFinite(value)) throw new Error(`Input should be number!`)
+      const divisor = new Fixed8(Math.pow(10, 8 - decimals))
+      const fixed8Value = new Fixed8(value)
+      const adjustedValue = fixed8Value.times(Math.pow(10, decimals))
+      const modValue = adjustedValue.mod(1)
+      if (!modValue.isZero()) throw new Error(`wrong precision: expected ${decimals}`)
+      value = fixed8Value.div(divisor)
+      return new ContractParam('ByteArray', value.toReverseHex().slice(0, 16))
     } else {
       return new ContractParam('ByteArray', value)
     }

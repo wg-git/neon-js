@@ -22,8 +22,6 @@ describe('Account', function () {
   describe('Constructor', function () {
     it('can be created with different formats', () => {
       Object.keys(acct).map((key) => {
-        // Skip scriptHash as it cannot be used.
-        if (key === 'scriptHash') return
         const a = new Account(acct[key])
         a.should.not.equal(undefined)
         if (key === 'publicKeyUnencoded') {
@@ -40,6 +38,13 @@ describe('Account', function () {
       a.should.not.equal(undefined)
       a.encrypted.should.equal(walletAcct.key)
       a.address.should.equal(walletAcct.address)
+    })
+
+    it('exports to a Wallet Account object', () => {
+      const walletAcct = testWallet.accounts[0]
+      const a = new Account(walletAcct)
+      const result = a.export()
+      result.should.eql(testWallet.accounts[0])
     })
 
     it('Accepts both public key forms', () => {

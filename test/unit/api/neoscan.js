@@ -1,8 +1,9 @@
 import * as neoscan from '../../../src/api/neoscan'
+import * as settings from '../../../src/settings'
 import { Balance, Claims } from '../../../src/wallet'
+import { Fixed8 } from '../../../src/utils'
 import testKeys from '../testKeys.json'
 import mockData from './mockData.json'
-import { Fixed8 } from '../../../src/utils'
 
 describe('Neoscan', function () {
   let mock
@@ -15,9 +16,22 @@ describe('Neoscan', function () {
     mock.restore()
   })
 
+  it('getAPIEndpoint', () => {
+    neoscan.getAPIEndpoint('MainNet').should.equal(settings.networks['MainNet'].extra.neoscan)
+    neoscan.getAPIEndpoint('TestNet').should.equal(settings.networks['TestNet'].extra.neoscan)
+    neoscan.getAPIEndpoint('CozNet').should.equal(settings.networks['CozNet'].extra.neoscan)
+  })
+
+  it('geRPCEndpoint returns https only', () => {
+    settings.httpsOnly = true
+    neoscan.getRPCEndpoint('TestNet')
+      .then(res => res.should.have.string('https://'))
+      .then(() => { settings.httpsOnly = false })
+  })
+
   it('getBalance returns Balance object', () => {
     return neoscan.getBalance('TestNet', testKeys.a.address).then(response => {
-      ;(response instanceof Balance).should.equal(true)
+      response.should.be.an.instanceof(Balance)
       response.assetSymbols.should.have.members(['NEO', 'GAS'])
       response.assets.NEO.balance.toNumber().should.equal(261)
       response.assets.NEO.unspent.should.be.an('array')
@@ -28,12 +42,26 @@ describe('Neoscan', function () {
     })
   })
 
+  it('getBalance on invalid/empty address returns null Balance object', () => {
+    return neoscan.getBalance('TestNet', 'invalidAddress').then(response => {
+      response.should.be.an.instanceof(Balance)
+      response.address.should.equal('not found')
+    })
+  })
+
   it('getClaims returns Claims object', () => {
     return neoscan.getClaims('TestNet', testKeys.a.address).then(response => {
-      ;(response instanceof Claims).should.equal(true)
+      response.should.be.an.instanceof(Claims)
       response.net.should.equal('TestNet')
       response.address.should.equal(testKeys.a.address)
       response.claims.should.be.an('array')
+    })
+  })
+
+  it('getClaims on invalid/empty address returns null Claims object', () => {
+    return neoscan.getClaims('TestNet', 'invalidAddress').then(response => {
+      response.should.be.an.instanceof(Claims)
+      response.address.should.equal('not found')
     })
   })
 
@@ -55,7 +83,7 @@ describe('Neoscan', function () {
     return neoscan
       .getMaxClaimAmount('TestNet', testKeys.a.address)
       .then(response => {
-        ;(response instanceof Fixed8).should.equal(true)
+        ; (response instanceof Fixed8).should.equal(true)
         const testNum = new Fixed8(0.03455555)
         const responseNumber = response.toNumber()
         responseNumber.should.equal(testNum.toNumber())

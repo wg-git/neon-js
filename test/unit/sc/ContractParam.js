@@ -29,6 +29,13 @@ describe('ContractParam', function () {
     cp2.should.eql({ type: 'Integer', value: 10 })
   })
 
+  it('Hash160', () => {
+    const cp1 = ContractParam.hash160('cef0c0fdcfe7838eff6ff104f9cdec2922297537')
+    cp1.should.eql({type: 'Hash160', value: 'cef0c0fdcfe7838eff6ff104f9cdec2922297537'})
+    const cp2 = ContractParam.hash160('ALq7AWrhAueN6mJNqk6FHJjnsEoPRytLdW')
+    cp2.should.eql({type: 'Hash160', value: 'cef0c0fdcfe7838eff6ff104f9cdec2922297537'})
+  })
+
   describe('ByteArray', function () {
     it('bytearray', () => {
       const cp = ContractParam.byteArray('010101')
@@ -41,8 +48,22 @@ describe('ContractParam', function () {
     })
 
     it('fixed8', () => {
-      const cp = ContractParam.byteArray(1000, 'fixed8')
-      cp.should.eql({ type: 'ByteArray', value: '00e8764817000000' })
+      const cp = ContractParam.byteArray(1000.12345678, 'fixed8')
+      cp.should.eql({ type: 'ByteArray', value: '4e49334917000000' })
+    })
+
+    it('fixed8 with zero decimals', () => {
+      const cp = ContractParam.byteArray(1, 'fixed8', 0)
+      cp.should.eql({ type: 'ByteArray', value: '0100000000000000' })
+    })
+
+    it('fixed8 with four decimals', () => {
+      const cp = ContractParam.byteArray(222.1234, 'fixed8', 4)
+      cp.should.eql({ type: 'ByteArray', value: 'b2e4210000000000' })
+    })
+
+    it('errors when exceeds allowed precision', () => {
+      (() => { ContractParam.byteArray(222.12345, 'fixed8', 4) }).should.throw(Error, 'wrong precision')
     })
   })
 
